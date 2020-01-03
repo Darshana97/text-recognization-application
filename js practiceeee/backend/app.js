@@ -6,6 +6,7 @@ const tesseract = require('tesseract.js');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const mongoose = require('mongoose');
 mongoose.set('useUnifiedTopology', 'true' );
@@ -18,6 +19,8 @@ db.on('error', console.error.bind(console, 'connection error:'));
 db.once('open', function() {
   // console.log('Connected dude!');
 });
+
+const checkAuth = require('../backend/middleware/user-auth');
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -62,9 +65,22 @@ const storage = multer.diskStorage({
 
 app.get("/api/user", (req, res, next) => {
     // console.log(req.query.user_name);
-    User.findOne({email: req.query.email, password: req.query.password}).then(user=>{
-        res.json({message: "SUCCESS!", user: user});
+    let oUser;
+    User.findOne({email: req.query.email}).then(user=>{
+        if(!user){
+            return res.json({message: 'AUTH FAILED!'});
+        }
+        oUser = user;
+        return bcrypt.compare(req.query.password, user.password);
+    }).then(res0=>{
+        if(!res0){
+            return res.json({message: 'AUTH FAILED!'});
+        }
+        const token = jwt.sign({email: req.query.email, user_id: oUser._id}, 'secret', {expiresIn: '1h'});
+        res.json({token: token, id: oUser._id, expiresIn: 3600});
     });
+
+    
 });
 
 app.post("/api/user", (req, res, next) => {
@@ -121,7 +137,7 @@ app.post("/api/image", multer({storage: storage}).single("image"), (req,res,next
       });
 });
 
-app.delete("/api/image/:id", (req,res,next)=>{
+app.delete("/api/image/:id", checkAuth, (req,res,next)=>{
     Image.deleteOne({_id: req.params.id}).then(res0=>{
         res.json({message: res0});
     });
